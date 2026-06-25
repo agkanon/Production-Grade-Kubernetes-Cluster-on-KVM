@@ -131,6 +131,7 @@ kubectl label namespace kong kubernetes.io/metadata.name=kong --overwrite
 SSH into lb-01 (192.168.1.50) and run:
 
 ```bash
+sudo apt-get update
 sudo apt-get install -y haproxy -qq
 
 sudo tee /etc/haproxy/haproxy.cfg > /dev/null <<'EOF'
