@@ -13,6 +13,11 @@ Run on a build host with Docker (EC2 jump host or hypervisor):
 ```bash
 cd phase3-application-deployment
 
+sudo usermod -aG docker $USER
+newgrp docker
+sudo systemctl restart docker
+
+
 docker build -t bmi-health/frontend:1.0.0 ./frontend
 docker build -t bmi-health/backend:1.0.0  ./backend
 docker build -t bmi-health/database:1.0.0 ./database
