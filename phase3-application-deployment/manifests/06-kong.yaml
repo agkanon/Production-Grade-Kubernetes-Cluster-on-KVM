@@ -1,0 +1,46 @@
+# ── Kong API Gateway — Manual Installation ─────────────────────────────────────
+#
+# Kong is installed manually (kubectl apply, no Helm) in DB-less mode.
+# DB-less mode stores all configuration in memory from a declarative config —
+# no external PostgreSQL/Cassandra needed for Kong itself, which simplifies
+# operations on a single-cluster assessment environment.
+#
+# Installation steps (run on cp-01 after Phase 3 manifests are applied):
+#
+#   Step 1 — Download the Kong Ingress Controller all-in-one manifest
+#   curl -o kong-all-in-one-dbless.yaml \
+#     https://raw.githubusercontent.com/Kong/kubernetes-ingress-controller/v3.2.0/deploy/single/all-in-one-dbless.yaml
+#
+#   Step 2 — Apply it (creates the 'kong' namespace and all CRDs/RBAC)
+#   kubectl apply -f kong-all-in-one-dbless.yaml
+#
+#   Step 3 — Wait for Kong pods to be Ready
+#   kubectl rollout status deployment/ingress-kong -n kong --timeout=120s
+#
+#   Step 4 — Verify Kong proxy is listening
+#   kubectl get svc -n kong
+#   # kong-proxy should have EXTERNAL-IP or NodePort assigned
+#
+# This file patches the Kong proxy Service to NodePort so lb-01 (HAProxy)
+# can forward external traffic to it without a cloud LoadBalancer.
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-proxy
+  namespace: kong
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "none"
+spec:
+  type: NodePort
+  selector:
+    app: ingress-kong
+  ports:
+    - name: proxy
+      port: 80
+      targetPort: 8000
+      nodePort: 30080
+    - name: proxy-ssl
+      port: 443
+      targetPort: 8443
+      nodePort: 30443

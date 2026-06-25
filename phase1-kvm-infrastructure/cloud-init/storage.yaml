@@ -1,0 +1,95 @@
+#cloud-config
+hostname: ${hostname}
+fqdn: ${hostname}.kubernetes.local
+
+package_update: true
+package_upgrade: true
+packages:
+  - curl
+  - wget
+  - git
+  - vim
+  - net-tools
+  - htop
+  - sysstat
+  - jq
+  - openssl
+  - openssh-server
+  - chrony
+  - nfs-kernel-server
+  - nfs-common
+  - lvm2
+  - xfsprogs
+
+ssh_pwauth: false
+disable_root: true
+
+users:
+  - name: ubuntu
+    groups: [adm, sudo]
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ${ssh_pub_key}
+
+write_files:
+  - path: /etc/netplan/99-static-ips.yaml
+    content: |
+      network:
+        version: 2
+        renderer: networkd
+        ethernets:
+          ens3:
+            dhcp4: false
+            addresses:
+              - ${mgmt_ip}/24
+            routes:
+              - to: default
+                via: ${mgmt_gateway}
+            nameservers:
+              addresses: [8.8.8.8, 8.8.4.4]
+          ens4:
+            dhcp4: false
+            addresses:
+              - ${storage_ip}/24
+
+  - path: /etc/sysctl.d/99-storage.conf
+    content: |
+      net.core.somaxconn=32768
+      net.ipv4.tcp_max_syn_backlog=8192
+
+  - path: /etc/exports
+    content: |
+      /nfs/kubernetes 192.168.2.0/24(rw,sync,no_subtree_check,no_root_squash)
+
+  - path: /opt/setup-nfs.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -e
+      
+      # Wait for secondary disk
+      sleep 5
+      
+      # Secondary disk is /dev/vdb — defined in Terraform as libvirt_volume.nfs_storage
+      DISK=/dev/vdb
+      echo "Formatting $${DISK} as XFS..."
+      mkfs.xfs -f "$${DISK}"
+      mkdir -p /nfs/kubernetes
+      mount "$${DISK}" /nfs/kubernetes
+      echo "$${DISK} /nfs/kubernetes xfs defaults,noatime 0 2" >> /etc/fstab
+      
+      # Set permissions
+      chmod 755 /nfs/kubernetes
+      
+      # Start NFS
+      systemctl enable nfs-server
+      systemctl start nfs-server
+
+runcmd:
+  - sysctl -p /etc/sysctl.d/99-storage.conf
+  - netplan apply
+  - systemctl restart ssh
+  - /opt/setup-nfs.sh
+
+final_message: "NFS storage server ${hostname} is ready"

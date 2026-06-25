@@ -1,0 +1,80 @@
+# ── Kong Routing — Ingress rules ───────────────────────────────────────────────
+#
+# Traffic flow:
+#   User → lb-01 (HAProxy :80) → Kong NodePort :30080
+#     ├── /api/* → backend-service:3000  (Node.js Express API)
+#     └── /*     → frontend-service:80   (nginx serving React SPA)
+#
+# The frontend's axios uses baseURL: '/api', so browser requests to
+# /api/measurements reach Kong, which forwards them to the backend.
+# Kong does NOT strip the /api prefix — the backend mounts routes at /api/*.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── IngressClass — tells Kong to own these Ingress resources ───────────────────
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: kong
+  annotations:
+    ingressclass.kubernetes.io/is-default-class: "true"
+spec:
+  controller: ingress-controllers.konghq.com/kong
+
+---
+# ── API route: /api → backend ──────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bmi-api-ingress
+  namespace: production
+  annotations:
+    konghq.com/strip-path: "false"
+    konghq.com/protocols: "http"
+spec:
+  ingressClassName: kong
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend-service
+                port:
+                  number: 3000
+
+---
+# ── Frontend route: / → frontend ───────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bmi-frontend-ingress
+  namespace: production
+  annotations:
+    konghq.com/strip-path: "false"
+    konghq.com/protocols: "http"
+spec:
+  ingressClassName: kong
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-service
+                port:
+                  number: 80
+
+---
+# ── Kong Rate Limiting Plugin (global) ────────────────────────────────────────
+# Protects the API from abuse; 100 requests per minute per client IP.
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: rate-limit-api
+  namespace: production
+plugin: rate-limiting
+config:
+  minute: 100
+  policy: local

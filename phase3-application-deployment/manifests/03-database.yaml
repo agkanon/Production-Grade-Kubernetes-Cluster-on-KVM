@@ -1,0 +1,117 @@
+# ── PostgreSQL StatefulSet ─────────────────────────────────────────────────────
+# StatefulSet (not Deployment) because:
+#   - Stable pod identity and DNS (postgres-0.postgres-service)
+#   - Ordered startup/shutdown prevents data corruption
+#   - volumeClaimTemplates bind a dedicated PVC per replica
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: production
+  labels:
+    app: postgres
+    tier: database
+spec:
+  serviceName: postgres-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+      tier: database
+  template:
+    metadata:
+      labels:
+        app: postgres
+        tier: database
+    spec:
+      serviceAccountName: postgres-sa
+      # Prefer scheduling on nodes labelled workload=application (set in Phase 2.2)
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 1
+              preference:
+                matchExpressions:
+                  - key: workload
+                    operator: In
+                    values: [application]
+      containers:
+        - name: postgres
+          image: bmi-health/database:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: bmi-config
+                  key: DB_NAME
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: bmi-secrets
+                  key: db-user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bmi-secrets
+                  key: db-password
+            # Point PostgreSQL at the NFS-backed persistent volume
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "bmi_user", "-d", "bmidb"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "bmi_user", "-d", "bmidb"]
+            initialDelaySeconds: 15
+            periodSeconds: 5
+  # Dynamic PVC provisioned from the nfs-client StorageClass (Phase 2.3)
+  # Data persists across pod restarts and rescheduling.
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: nfs-client
+        resources:
+          requests:
+            storage: 10Gi
+
+---
+# ── PostgreSQL ClusterIP Service ───────────────────────────────────────────────
+# Stable DNS name: postgres-service.production.svc.cluster.local
+# The backend DATABASE_URL references this hostname — no IP hardcoding needed.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: production
+  labels:
+    app: postgres
+    tier: database
+spec:
+  clusterIP: None   # Headless — StatefulSet pods get stable DNS via serviceName
+  selector:
+    app: postgres
+    tier: database
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgres

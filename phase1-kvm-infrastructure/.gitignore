@@ -1,0 +1,27 @@
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate*
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/
+*.iml
+
+# SSH keys - NEVER commit these!
+.ssh/
+!.ssh/.gitkeep
+
+# Deployment outputs
+.deployment_output.json
+tfplan
+
+# IDE
+*.tfvars.json
+crash.log
+
+# Local overrides
+local.tfvars
+
+# Generated at deploy time — contains SSH private key
+terraform.tfvars

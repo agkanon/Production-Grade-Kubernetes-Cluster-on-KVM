@@ -1,0 +1,194 @@
+#cloud-config
+hostname: ${hostname}
+fqdn: ${hostname}.kubernetes.local
+
+package_update: true
+package_upgrade: true
+packages:
+  - curl
+  - wget
+  - vim
+  - net-tools
+  - htop
+  - sysstat
+  - jq
+  - openssl
+  - openssh-server
+  - chrony
+  - gnupg
+  - lsb-release
+  - nfs-common
+
+ssh_pwauth: false
+disable_root: true
+
+users:
+  - name: ubuntu
+    groups: [adm, sudo]
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ${ssh_pub_key}
+
+write_files:
+  # Static IP configuration — management NIC
+  - path: /etc/netplan/99-static-ips.yaml
+    content: |
+      network:
+        version: 2
+        renderer: networkd
+        ethernets:
+          ens3:
+            dhcp4: false
+            addresses:
+              - ${mgmt_ip}/24
+            routes:
+              - to: default
+                via: ${mgmt_gateway}
+            nameservers:
+              addresses: [8.8.8.8, 8.8.4.4]
+          ens4:
+            dhcp4: false
+            addresses:
+              - ${storage_ip}/24
+
+  # Kernel tuning — identical baseline to all cluster nodes
+  - path: /etc/sysctl.d/99-k8s.conf
+    content: |
+      net.ipv4.ip_forward=1
+      fs.file-max=2097152
+      vm.max_map_count=262144
+      vm.swappiness=10
+
+  # PostgreSQL listen on management IP + loopback
+  - path: /etc/postgresql/17/main/conf.d/99-bmi-custom.conf
+    content: |
+      listen_addresses = '${mgmt_ip},127.0.0.1'
+      port = 5432
+      max_connections = 100
+      shared_buffers = 512MB
+      effective_cache_size = 1536MB
+      maintenance_work_mem = 128MB
+      checkpoint_completion_target = 0.9
+      wal_buffers = 16MB
+      default_statistics_target = 100
+      random_page_cost = 1.1
+      effective_io_concurrency = 200
+      log_destination = 'stderr'
+      logging_collector = on
+      log_directory = 'log'
+      log_filename = 'postgresql-%Y-%m-%d.log'
+      log_line_prefix = '%t [%p]: [%l-1] user=%u,db=%d '
+      log_min_duration_statement = 1000
+
+  # pg_hba.conf — allow management network with password auth
+  - path: /tmp/pg_hba_append.conf
+    content: |
+      # BMI Tracker — allow all K8s nodes and local connections
+      host    bmidb    bmi_user    127.0.0.1/32         md5
+      host    bmidb    bmi_user    192.168.1.0/24       md5
+
+  # Database init script
+  - path: /tmp/init-db.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -e
+
+      PG_DATA_DISK=/dev/vdb
+      PG_DATA_DIR=/var/lib/postgresql/data
+      PG_VERSION=17
+      PG_CLUSTER_DIR=/var/lib/postgresql/$${PG_VERSION}/main
+
+      # ── 1. Format and mount the dedicated data disk ──────────────────
+      echo "[init-db] Formatting $${PG_DATA_DISK}..."
+      mkfs.ext4 -F "$${PG_DATA_DISK}"
+      mkdir -p "$${PG_DATA_DIR}"
+      mount "$${PG_DATA_DISK}" "$${PG_DATA_DIR}"
+      echo "$${PG_DATA_DISK} $${PG_DATA_DIR} ext4 defaults,noatime 0 2" >> /etc/fstab
+
+      # ── 2. Move PostgreSQL data cluster to the dedicated disk ─────────
+      echo "[init-db] Stopping PostgreSQL..."
+      systemctl stop postgresql
+
+      echo "[init-db] Migrating cluster data to dedicated disk..."
+      rsync -a --delete "$${PG_CLUSTER_DIR}/" "$${PG_DATA_DIR}/"
+      chown -R postgres:postgres "$${PG_DATA_DIR}"
+      chmod 700 "$${PG_DATA_DIR}"
+
+      # ── 3. Point PostgreSQL to the new data directory ─────────────────
+      PG_CONF=/etc/postgresql/$${PG_VERSION}/main/postgresql.conf
+      sed -i "s|data_directory = .*|data_directory = '$${PG_DATA_DIR}'|" "$${PG_CONF}"
+
+      # ── 4. Append pg_hba rules ────────────────────────────────────────
+      cat /tmp/pg_hba_append.conf >> /etc/postgresql/$${PG_VERSION}/main/pg_hba.conf
+
+      # ── 5. Restart with new config ────────────────────────────────────
+      echo "[init-db] Starting PostgreSQL on data disk..."
+      systemctl start postgresql
+      sleep 5
+
+      # ── 6. Create application user and database ───────────────────────
+      echo "[init-db] Creating database user and database..."
+      sudo -u postgres psql -c "CREATE USER bmi_user WITH PASSWORD 'StrongP@ssw0rd!' LOGIN;"
+      sudo -u postgres psql -c "CREATE DATABASE bmidb OWNER bmi_user ENCODING 'UTF8' LC_COLLATE 'en_US.UTF-8' LC_CTYPE 'en_US.UTF-8' TEMPLATE template0;"
+
+      # ── 7. Run migrations ─────────────────────────────────────────────
+      echo "[init-db] Running schema migrations..."
+      sudo -u postgres psql -d bmidb -f /tmp/001_create_measurements.sql
+      sudo -u postgres psql -d bmidb -f /tmp/002_add_measurement_date.sql
+
+      echo "[init-db] Database initialisation complete."
+
+  # Migration 001 — measurements table
+  - path: /tmp/001_create_measurements.sql
+    content: |
+      CREATE TABLE IF NOT EXISTS measurements (
+        id                SERIAL PRIMARY KEY,
+        weight_kg         NUMERIC(5,2)  NOT NULL CHECK (weight_kg > 0 AND weight_kg < 1000),
+        height_cm         NUMERIC(5,2)  NOT NULL CHECK (height_cm > 0 AND height_cm < 300),
+        age               INTEGER       NOT NULL CHECK (age > 0 AND age < 150),
+        sex               VARCHAR(10)   NOT NULL CHECK (sex IN ('male', 'female')),
+        activity_level    VARCHAR(30)   CHECK (activity_level IN ('sedentary','light','moderate','active','very_active')),
+        bmi               NUMERIC(4,1)  NOT NULL,
+        bmi_category      VARCHAR(30),
+        bmr               INTEGER,
+        daily_calories    INTEGER,
+        measurement_date  DATE          NOT NULL DEFAULT CURRENT_DATE,
+        created_at        TIMESTAMPTZ   NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_measurements_measurement_date ON measurements(measurement_date DESC);
+      CREATE INDEX IF NOT EXISTS idx_measurements_created_at       ON measurements(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_measurements_bmi              ON measurements(bmi);
+
+  # Migration 002 — measurement_date guard (idempotent)
+  - path: /tmp/002_add_measurement_date.sql
+    content: |
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'measurements' AND column_name = 'measurement_date'
+        ) THEN
+          ALTER TABLE measurements ADD COLUMN measurement_date DATE NOT NULL DEFAULT CURRENT_DATE;
+          UPDATE measurements SET measurement_date = DATE(created_at);
+          CREATE INDEX idx_measurements_measurement_date ON measurements(measurement_date DESC);
+        END IF;
+      END $$;
+
+runcmd:
+  - sysctl -p /etc/sysctl.d/99-k8s.conf
+  - netplan apply
+  - systemctl daemon-reload
+  - systemctl enable chrony
+  - systemctl start chrony
+  - systemctl restart ssh
+  # Install PostgreSQL 17 from PGDG (Ubuntu 24.04 default repo only ships PG 16)
+  - 'curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg'
+  - 'echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+  - apt-get update -qq
+  - apt-get install -y postgresql-17 postgresql-client-17 postgresql-contrib-17
+  - bash /tmp/init-db.sh 2>&1 | tee /var/log/init-db.log
+  - systemctl enable postgresql
+
+final_message: "Database node ${hostname} is ready — PostgreSQL listening on ${mgmt_ip}:5432"

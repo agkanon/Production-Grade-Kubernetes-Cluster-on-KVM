@@ -1,0 +1,100 @@
+# ── PostgreSQL Backup — PVC (NFS-backed backup storage) ───────────────────────
+# A dedicated PVC separates backup data from live data.
+# Backups land on nfs-01 under a timestamped sub-directory,
+# so restoring any day's dump is a single pg_restore command.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pg-backup-storage
+  namespace: production
+spec:
+  storageClassName: nfs-client
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+# ── PostgreSQL Backup — CronJob ────────────────────────────────────────────────
+# Runs daily at 02:00 UTC. Uses pg_dump in custom format (-Fc) which is
+# smaller than plain SQL and supports parallel restore with pg_restore -j.
+# The job connects to postgres-service (headless Service) via the
+# DATABASE_URL secret already used by the backend — no extra credentials needed.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pg-daily-backup
+  namespace: production
+  labels:
+    app: pg-backup
+spec:
+  schedule: "0 2 * * *"
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: pg-backup
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: pg-backup-sa
+          containers:
+            - name: pg-dump
+              image: postgres:17-alpine
+              imagePullPolicy: IfNotPresent
+              command:
+                - sh
+                - -c
+                - |
+                  set -e
+                  TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+                  BACKUP_DIR=/backups/${TIMESTAMP}
+                  mkdir -p ${BACKUP_DIR}
+
+                  echo "Starting pg_dump at ${TIMESTAMP}..."
+                  pg_dump \
+                    --host=postgres-service.production.svc.cluster.local \
+                    --port=5432 \
+                    --username=${PGUSER} \
+                    --dbname=${PGDATABASE} \
+                    --format=custom \
+                    --compress=9 \
+                    --file=${BACKUP_DIR}/bmidb.dump
+
+                  echo "Backup written to ${BACKUP_DIR}/bmidb.dump"
+                  ls -lh ${BACKUP_DIR}/bmidb.dump
+
+                  # Retain only the last 30 days of backups
+                  find /backups -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
+                  echo "Old backups pruned. Done."
+              env:
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef:
+                      name: bmi-secrets
+                      key: db-user
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: bmi-secrets
+                      key: db-password
+                - name: PGDATABASE
+                  value: bmidb
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backups
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: pg-backup-storage
