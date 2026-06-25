@@ -59,8 +59,8 @@ init_control_plane() {
     log_error "Could not generate join command from cp-01"
     exit 1
   fi
-  echo "$JOIN_CMD" > /tmp/kubeadm-join-cmd.txt
-  log_info "Join command saved to /tmp/kubeadm-join-cmd.txt"
+  echo "$JOIN_CMD" > /tmp/kubeadm-join-cmd.txt 2>/dev/null || echo "$JOIN_CMD" > "${SCRIPT_DIR}/kubeadm-join-cmd.txt"
+  log_info "Join command saved"
 
   # Configure kubectl
   log_info "Configuring kubectl..."
@@ -128,7 +128,7 @@ join_workers() {
     log_error "Failed to generate join command"
     exit 1
   fi
-  echo "$join_cmd" > /tmp/kubeadm-join-cmd.txt
+  echo "$join_cmd" > /tmp/kubeadm-join-cmd.txt 2>/dev/null || echo "$join_cmd" > "${SCRIPT_DIR}/kubeadm-join-cmd.txt"
   log_info "Join command: $join_cmd"
 
   log_info "Joining w-01..."
