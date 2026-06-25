@@ -67,6 +67,7 @@ source ~/.bashrc
 
 virsh-list
 
+sudo chown -R ubuntu phase1-kvm-infrastructure/.ssh/
 # SSH reachable
 ssh -i phase1-kvm-infrastructure/.ssh/id_rsa ubuntu@192.168.1.10 "hostname"
 ssh -i phase1-kvm-infrastructure/.ssh/id_rsa ubuntu@192.168.1.20 "hostname"
