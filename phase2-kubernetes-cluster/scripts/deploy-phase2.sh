@@ -155,7 +155,7 @@ join_workers() {
 setup_nfs_server() {
   log_info "Configuring NFS server on nfs-01..."
   ${SSH_CMD} "ubuntu@${NFS_IP}" "
-    sudo apt-get install -y nfs-kernel-server -qq 2>/dev/null
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nfs-kernel-server
     sudo mkdir -p /nfs/kubernetes
     sudo chown nobody:nogroup /nfs/kubernetes
     sudo chmod 755 /nfs/kubernetes
@@ -553,7 +553,6 @@ main() {
   install_cilium
   verify_cni
   join_workers
-  setup_nfs_server
   setup_nfs
   setup_security
   install_metrics_server
