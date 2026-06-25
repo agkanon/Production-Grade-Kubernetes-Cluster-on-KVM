@@ -128,6 +128,7 @@ ssh -i phase1-kvm-infrastructure/.ssh/id_rsa ubuntu@192.168.1.10
 ```bash
 # Verify containerd and kubelet
 sudo systemctl status containerd
+sudo systemctl start kubelet
 sudo systemctl status kubelet   # Expected: activating or failed — normal before init
 
 # Confirm kubeadm, kubelet, kubectl versions match
