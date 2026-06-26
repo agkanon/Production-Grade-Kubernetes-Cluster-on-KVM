@@ -690,6 +690,11 @@ Phase 5 manifests are in `phase5-security-hardening/manifests/04-network-policie
   gets sensible defaults automatically. This is required when a ResourceQuota is active
   because Kubernetes rejects pods with no resource spec if a quota exists.
 
+A pre-built manifest is available at `manifests/03-resource-quota.yaml`. Apply it with:
+```bash
+kubectl apply -f phase2-kubernetes-cluster/manifests/03-resource-quota.yaml
+```
+
 **Resource sizing rationale for `production`:**
 
 | Workload | Replicas | CPU request | Mem request |

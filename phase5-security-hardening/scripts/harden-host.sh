@@ -46,18 +46,25 @@ echo "  SSH config hardened."
 
 # ── 2. UFW Firewall ─────────────────────────────────────────────────────────
 echo "[2/4] Applying UFW firewall rules..."
+
+# WARNING: The networks below match the deployment in NETWORK_TOPOLOGY.md.
+# If your KVM bridge IP ranges differ, update these values before running.
+
 ufw --force reset
 ufw default deny incoming
 ufw default allow outgoing
 
-# Management SSH — allow from private RFC 1918 ranges
-ufw allow from 10.0.0.0/8 to any port 22
+# kube-management network (192.168.1.0/24) — allow SSH from management network
+ufw allow from 192.168.1.0/24 to any port 22
 
-# Kubernetes API Server — cluster network only
-ufw allow from 10.0.1.0/24 to any port 6443
+# kube-management network (192.168.1.0/24) — allow Kubernetes API from management network
+ufw allow from 192.168.1.0/24 to any port 6443
 
-# NFS — storage network only
-ufw allow from 10.0.2.0/24 to any port 2049
+# kube-storage network (192.168.2.0/24) — allow NFS from storage network
+ufw allow from 192.168.2.0/24 to any port 2049
+
+# kube-external network (192.168.100.0/24) — allow HTTP from external network
+ufw allow from 192.168.100.0/24 to any port 80
 
 ufw --force enable
 echo "  UFW firewall enabled."

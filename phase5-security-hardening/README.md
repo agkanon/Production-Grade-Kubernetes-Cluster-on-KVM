@@ -38,6 +38,15 @@ sudo bash phase5-security-hardening/scripts/harden-host.sh
 
 PSA is set to `warn` + `audit` only. `enforce` is commented out because the frontend nginx and postgres images need root-level access during startup. Switch to `enforce=restricted` after rebuilding images with non-root entrypoints.
 
+**What's needed to enable `enforce=restricted`:**
+
+| Image | Current blocker | Required change |
+|-------|----------------|----------------|
+| `frontend` (nginx) | Nginx entrypoint runs as root; binds to port 80 | Rebuild with a non-root nginx config (use `nginx:1.27-alpine-slim` with `USER nginx` before `CMD`) |
+| `postgres` (StatefulSet) | Postgres initdb needs root capabilities on NFS | Switch to a dedicated NFS-compatible postgres image or patch the container to run with `fsGroup` and adjust directory ownership |
+
+**Target milestone:** After Phase 7 CI/CD integration — rebuild both images using the pipeline (see [Runbook 6.3 — Rolling Application Update](../../phase6-runbooks/README.md#runbook-63--rolling-application-update)), push updated manifests, then switch `enforce` from commented to active. This is a post-assessment production hardening task.
+
 ```bash
 kubectl apply -f - <<'EOF'
 apiVersion: v1

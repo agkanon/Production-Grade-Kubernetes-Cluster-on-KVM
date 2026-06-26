@@ -1,4 +1,8 @@
 # ── Grafana — Admin credentials Secret ────────────────────────────────────────
+# HOW TO USE:
+# 1. Replace <YOUR_ADMIN_PASSWORD> with a strong password
+# 2. Apply: kubectl apply -f 04-grafana.yaml
+# 3. Never commit real credentials — this file is a template
 apiVersion: v1
 kind: Secret
 metadata:
@@ -6,7 +10,7 @@ metadata:
   namespace: monitoring
 stringData:
   admin-user: "admin"
-  admin-password: "agk@2026!"
+  admin-password: "<YOUR_ADMIN_PASSWORD>"
 
 ---
 # ── Grafana — ConfigMap (datasources) ─────────────────────────────────────────
