@@ -1,0 +1,22 @@
+# ── Pod Security Admission — "restricted" profile ──────────────────────────
+# The "restricted" PSA level blocks:
+#   - Privileged containers
+#   - hostPID, hostNetwork, hostIPC
+#   - Privilege escalation (allowPrivilegeEscalation: true)
+#   - Running as root (requires runAsNonRoot: true, runAsUser: non-zero)
+#   - Missing seccomp profile (requires seccompProfile RuntimeDefault)
+#
+# All three modes (enforce, warn, audit) are set to "restricted" so that
+# non-compliant pods are rejected at admission and violations are logged.
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest

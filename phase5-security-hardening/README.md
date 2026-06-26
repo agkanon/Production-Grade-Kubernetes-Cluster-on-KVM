@@ -6,6 +6,34 @@
 
 ---
 
+## Implementation Files
+
+This directory contains two implementation artifacts that support the hardening steps below:
+
+### `manifests/01-pod-security-admission.yaml`
+
+A Namespace manifest for `production` that enforces the **restricted** Pod Security Admission profile across all three modes (enforce, warn, audit). This blocks privileged containers, host namespace sharing, privilege escalation, and requires non-root users with seccomp profiles.
+
+**Apply with:**
+```bash
+kubectl apply -f phase5-security-hardening/manifests/01-pod-security-admission.yaml
+```
+
+### `scripts/harden-host.sh`
+
+A bash hardening script to run as root on each KVM host node. It:
+1. Hardens SSH configuration (PasswordAuthentication no, PermitRootLogin no, MaxAuthTries 3)
+2. Applies UFW firewall rules (default deny incoming, allow only essential ports from internal networks)
+3. Sets kernel sysctl hardening parameters (disable redirects, restrict dmesg)
+4. Disables unnecessary services (avahi-daemon, cups, bluetooth)
+
+**Run with:**
+```bash
+sudo bash phase5-security-hardening/scripts/harden-host.sh
+```
+
+---
+
 ## Step 1 — Apply Pod Security Admission Labels
 
 PSA is set to `warn` + `audit` only. `enforce` is commented out because the frontend nginx and postgres images need root-level access during startup. Switch to `enforce=restricted` after rebuilding images with non-root entrypoints.

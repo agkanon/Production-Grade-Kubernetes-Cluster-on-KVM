@@ -1,0 +1,14 @@
+# Copy this file to terraform.tfvars and fill in your values
+# cp terraform.tfvars.example terraform.tfvars
+
+libvirt_uri     = "qemu:///system"
+libvirt_pool    = "default"
+bridge_mgmt     = "virbr1"
+bridge_storage  = "virbr2"
+bridge_external = "virbr3"
+
+# Paste your SSH public key here (cat ~/.ssh/id_rsa.pub)
+ssh_public_key  = "<YOUR_SSH_PUBLIC_KEY>"
+
+# Path to your SSH private key for Terraform provisioner
+ssh_private_key = "<PATH_TO_YOUR_SSH_PRIVATE_KEY>"

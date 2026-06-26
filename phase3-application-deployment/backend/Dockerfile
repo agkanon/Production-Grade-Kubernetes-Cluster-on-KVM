@@ -1,22 +1,29 @@
-# Node 22 LTS Alpine (Active LTS since Oct 2024) — minimal base; pure JS project.
+# Multi-stage build: builder installs all deps; production image only ships runtime deps,
+# reducing image size and attack surface.
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY src/        ./src/
+COPY migrations/ ./migrations/
+
 FROM node:22-alpine
 
 WORKDIR /app
 
-# Create a non-root user before copying files
 RUN addgroup -S appgroup \
  && adduser -S appuser -G appgroup
 
-# Install production dependencies only
 COPY package*.json ./
 RUN npm ci --omit=dev \
  && npm cache clean --force
 
-# Copy application source
-COPY src/        ./src/
-COPY migrations/ ./migrations/
+COPY --from=builder /app/src        ./src/
+COPY --from=builder /app/migrations ./migrations/
 
-# Transfer ownership to non-root user
 RUN chown -R appuser:appgroup /app
 
 USER appuser

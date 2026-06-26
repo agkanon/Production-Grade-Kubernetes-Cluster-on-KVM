@@ -1,0 +1,53 @@
+# ── PodDisruptionBudgets: Guarantee minimum availability during maintenance ──
+# When a node is drained or undergoes maintenance, the eviction API honours
+# PDBs — it will not evict a pod if doing so drops running replicas below
+# minAvailable (or above maxUnavailable). Without PDBs, a drain can take all
+# replicas offline simultaneously, causing a full service outage.
+
+# PDB 1 — frontend (stateless, 2 replicas)
+# minAvailable: 1 ensures at least one replica stays running during any
+# voluntary disruption. Traffic shifts to the remaining pod while the
+# replacement starts up.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: production
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend
+
+---
+# PDB 2 — backend (stateless, 2 replicas)
+# Same rationale as frontend: at least one replica must remain serving
+# API requests during node maintenance or rolling updates.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-pdb
+  namespace: production
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: backend
+
+---
+# PDB 3 — postgres (stateful, 1 replica)
+# maxUnavailable: 0 means the database must never be disrupted during
+# voluntary maintenance. With a single replica, any eviction would cause
+# a write outage. This PDB forces the operator to handle the database
+# pod manually (e.g., cordon the node, drain other pods first, then
+# migrate the database with a manual procedure).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: postgres-pdb
+  namespace: production
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: postgres

@@ -1,0 +1,161 @@
+# ── NetworkPolicies: 3-Tier Isolation — production namespace ──────────────────
+# Architecture:
+#   User → HAProxy → Kong (kong namespace) → frontend :80
+#                                           → backend  :3000 → postgres :5432
+#
+# Strategy: Default-deny all traffic, then selectively open required paths.
+# This ensures a compromised frontend pod cannot directly reach the database.
+# ───────────────────────────────────────────────────────────────────────────────
+
+# Policy 1 — default-deny-all
+# Baseline: deny all ingress and egress for every pod in the namespace.
+# Traffic is only allowed by the explicit policies below.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: production
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+# Policy 2 — allow-dns-egress
+# All pods need DNS resolution for service discovery (e.g., postgres-service).
+# Without this, pods cannot resolve the headless service hostname.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: production
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+# Policy 3 — allow-frontend-to-backend
+# Kong routes /api requests to the backend service on port 3000.
+# The frontend pod itself does not need to reach the backend directly
+# (the browser calls /api through Kong), but this policy allows
+# Kong (in the kong namespace) to reach the backend.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kong-to-backend
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kong
+      ports:
+        - port: 3000
+          protocol: TCP
+
+---
+# Policy 4 — allow-backend-to-database
+# The backend connects to PostgreSQL on port 5432. Only the backend
+# (and the pg-backup CronJob) should ever reach the database.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-database
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - port: 5432
+          protocol: TCP
+
+---
+# Policy 5 — allow-kong-to-frontend
+# Kong routes / requests to the frontend service on port 80.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kong-to-frontend
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kong
+      ports:
+        - port: 80
+          protocol: TCP
+
+---
+# Policy 6 — allow-monitoring-to-backend
+# Prometheus (in the monitoring namespace) scrapes /metrics from the backend.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-to-backend
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 3000
+          protocol: TCP
+
+---
+# Policy 7 — allow-pg-backup-to-database
+# The pg-dump CronJob (app: pg-backup) needs to reach PostgreSQL for backups.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pg-backup-to-database
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: pg-backup
+      ports:
+        - port: 5432
+          protocol: TCP
