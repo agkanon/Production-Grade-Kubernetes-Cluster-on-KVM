@@ -2,24 +2,14 @@
 hostname: ${hostname}
 fqdn: ${hostname}.kubernetes.local
 
-package_update: true
-package_upgrade: true
-packages:
-  - curl
-  - wget
-  - git
-  - vim
-  - net-tools
-  - htop
-  - sysstat
-  - jq
-  - openssl
-  - openssh-server
-  - chrony
-  - nfs-kernel-server
-  - nfs-common
-  - lvm2
-  - xfsprogs
+# All package installation happens in runcmd, not here — see the note in
+# runcmd below. package_update/package_upgrade/packages run before netplan
+# apply brings up static IP+DNS and were observed to fail outright on a cold
+# boot ("Temporary failure resolving 'archive.ubuntu.com'"), which is how
+# nfs-kernel-server ended up silently missing despite /opt/setup-nfs.sh
+# assuming it was already installed.
+package_update: false
+package_upgrade: false
 
 ssh_pwauth: false
 disable_root: true
@@ -58,9 +48,12 @@ write_files:
       net.core.somaxconn=32768
       net.ipv4.tcp_max_syn_backlog=8192
 
+  # "insecure" is required — the nfs-subdir-external-provisioner pod mounts
+  # from a container network namespace and does not always use a source port
+  # below 1024, which the NFS default (secure-only) export would reject.
   - path: /etc/exports
     content: |
-      /nfs/kubernetes 192.168.2.0/24(rw,sync,no_subtree_check,no_root_squash)
+      /nfs/kubernetes 192.168.2.0/24(rw,sync,no_subtree_check,no_root_squash,insecure)
 
   - path: /opt/setup-nfs.sh
     permissions: '0755'
@@ -89,6 +82,25 @@ write_files:
 runcmd:
   - sysctl -p /etc/sysctl.d/99-storage.conf
   - netplan apply
+
+  # netplan apply above switches ens3 from the image's default DHCP config to
+  # our static IP; DNS only becomes reachable once that lands. All packages
+  # (not just nfs-kernel-server) are installed here, not in packages:, since
+  # that list runs before networking is reconfigured and was observed to fail
+  # outright with "Temporary failure resolving 'archive.ubuntu.com'" on a
+  # cold boot.
+  - |
+    for i in $(seq 1 30); do
+      getent hosts archive.ubuntu.com > /dev/null 2>&1 && break
+      sleep 2
+    done
+  - apt-get update -qq
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget git vim net-tools htop sysstat jq openssl openssh-server chrony nfs-common lvm2 xfsprogs
+  # --force-confold keeps /etc/exports already placed by write_files instead
+  # of prompting (and hanging, since this runs unattended) over the
+  # package's own default (commented-out example) conffile at the same path.
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::="--force-confold" nfs-kernel-server
+
   - systemctl restart ssh
   - /opt/setup-nfs.sh
 

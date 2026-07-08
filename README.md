@@ -494,6 +494,74 @@ cluster nodes without any VPN or firewall rule changes.
 
 ---
 
+## Public Access When the Hypervisor Is an EC2 Instance
+
+The architecture above assumes the KVM hypervisor is bare-metal on a private
+network, with `lb-01` (192.168.100.10) reachable directly. When the
+hypervisor is itself a cloud VM (e.g. an EC2 instance used to demo this
+project), `lb-01` is only reachable from inside that instance — none of the
+`192.168.x.x` addresses are routable from the internet. Reaching the app from
+outside requires one more hop: port-forwarding on the hypervisor's public
+interface into the KVM `kube-external` bridge.
+
+### Why this is a separate step, not part of Phase 1
+
+This is a property of *where the hypervisor happens to be running*, not of
+the cluster design — a bare-metal hypervisor on a LAN wouldn't need it, and
+baking cloud-specific NAT rules into `deploy-phase1.sh` would couple
+infrastructure-as-code that's meant to be environment-agnostic to one
+specific host type. It's applied manually, once, after Phase 3.
+
+### Setup (run on the hypervisor, i.e. the EC2 instance)
+
+```bash
+# Find the hypervisor's public-facing NIC (not a virbr* bridge)
+PUB_IF=$(ip -o -4 addr show | awk '!/virbr|docker0|lo/{print $2; exit}')
+
+# DNAT: hypervisor public IP:80/443 → lb-01:80/443
+sudo iptables -t nat -A PREROUTING -i "$PUB_IF" -p tcp --dport 80  -j DNAT --to-destination 192.168.100.10:80
+sudo iptables -t nat -A PREROUTING -i "$PUB_IF" -p tcp --dport 443 -j DNAT --to-destination 192.168.100.10:443
+
+# Explicit ACCEPT for the new (not yet established) DNAT'd connections —
+# the existing FORWARD rules from deploy-phase1.sh only ACCEPT
+# RELATED,ESTABLISHED traffic back *into* kube-external, not new sessions.
+sudo iptables -I FORWARD 1 -p tcp -d 192.168.100.10 --dport 80  -j ACCEPT
+sudo iptables -I FORWARD 1 -p tcp -d 192.168.100.10 --dport 443 -j ACCEPT
+```
+
+These rules are **not persisted across reboots** by default — install
+`iptables-persistent` (`netfilter-persistent save`) if the hypervisor may
+restart.
+
+### Also required: open the port in the cloud firewall
+
+The above only forwards traffic *inside* the instance. The cloud provider's
+firewall (AWS Security Group / GCP firewall rule / Azure NSG) must separately
+allow inbound TCP 80 (and 443 if used) to the instance — this cannot be done
+from inside the instance and has no relationship to anything in this repo;
+configure it via the provider's console or CLI with your own credentials.
+
+### Result
+
+```
+Browser → http://<hypervisor-public-ip>/ → iptables DNAT → lb-01:80 (HAProxy)
+        → Kong NodePort :30080 on w-01/w-02 → frontend/backend Services
+```
+
+Verify:
+```bash
+curl -s http://<hypervisor-public-ip>/ | grep -i title
+curl -s http://<hypervisor-public-ip>/api/measurements
+```
+
+> This exposes the demo application over plain HTTP with no TLS and no
+> authentication in front of it beyond Kong's rate-limiting plugin (Phase 3).
+> Treat any URL set up this way as a temporary demo endpoint, not a
+> production exposure — tear down the DNAT rules (`iptables -t nat -D ...`)
+> and close the security-group port when the demo is done.
+
+---
+
 ## Execution Order
 
 ```

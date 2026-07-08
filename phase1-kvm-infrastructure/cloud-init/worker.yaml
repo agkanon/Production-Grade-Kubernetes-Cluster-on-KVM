@@ -2,27 +2,16 @@
 hostname: ${hostname}
 fqdn: ${hostname}.kubernetes.local
 
-package_update: true
-package_upgrade: true
-packages:
-  - curl
-  - wget
-  - git
-  - vim
-  - net-tools
-  - htop
-  - sysstat
-  - jq
-  - openssl
-  - openssh-server
-  - chrony
-  - bridge-utils
-  - ebtables
-  - ethtool
-  - apt-transport-https
-  - ca-certificates
-  - gnupg
-  - nfs-common
+# All package installation happens in runcmd, not here. cloud-init's
+# package_update/package_upgrade/packages processing runs *before* runcmd —
+# before netplan apply switches this VM off the image's default DHCP config
+# onto our static IP+DNS. On a cold boot that ordering was observed to fail
+# outright ("Temporary failure resolving 'archive.ubuntu.com'"), silently
+# leaving everything in packages: uninstalled, including gnupg/ca-certificates
+# that later runcmd steps (gpg --dearmor) depend on. See the package install
+# block below, which runs only after network connectivity is confirmed.
+package_update: false
+package_upgrade: false
 
 ssh_pwauth: false
 disable_root: true
@@ -85,13 +74,34 @@ runcmd:
   - sysctl -p /etc/sysctl.d/99-k8s.conf
   - netplan apply
 
+  # netplan apply above switches ens3 from the image's default DHCP config to
+  # our static IP. DNS (8.8.8.8) only becomes reachable once that switch lands,
+  # which can race the very next apt/curl calls on a freshly booted VM and
+  # produce "Temporary failure resolving" errors. Block here until resolution
+  # actually works instead of hoping the timing works out.
+  - |
+    for i in $(seq 1 30); do
+      getent hosts download.docker.com > /dev/null 2>&1 && break
+      sleep 2
+    done
+
+  # ── Base packages (moved here from packages: — see note above) ──────────────
+  - apt-get update -qq
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget git vim net-tools htop sysstat jq openssl openssh-server chrony bridge-utils ebtables ethtool apt-transport-https ca-certificates gnupg nfs-common
+
   # ── Install containerd.io ───────────────────────────────────────────────────
   - install -m 0755 -d /etc/apt/keyrings
   - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
   - chmod a+r /etc/apt/keyrings/docker.asc
   - echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list
   - apt-get update -qq
-  - apt-get install -y containerd.io
+  # Docker's repo now defaults to containerd.io 2.x, whose CRI plugin does not
+  # answer the CRI v1 RuntimeService that kubeadm/cri-tools v1.32 expect
+  # ("rpc error: ... unknown service runtime.v1.RuntimeService"). Pin to the
+  # latest 1.7.x release — the line actually validated against kubeadm v1.32.
+  - |
+    CONTAINERD_VERSION=$(apt-cache madison containerd.io | awk '{print $3}' | grep '^1\.7\.' | sort -V | tail -1)
+    apt-get install -y "containerd.io=$${CONTAINERD_VERSION}"
   - mkdir -p /etc/containerd
   - containerd config default | tee /etc/containerd/config.toml
   - sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml

@@ -24,11 +24,14 @@ for img in prom/prometheus:v2.53.1 prom/node-exporter:v1.8.2 grafana/grafana:11.
   docker save "$img" | gzip > "/tmp/${name}.tar.gz"
 done
 
+# NOTE: no --label flag on the import below — it is not a valid flag on the
+# ctr shipped with containerd.io 1.7.x ("flag provided but not defined:
+# -label") and causes the import to fail outright.
 for NODE in 192.168.1.10 192.168.1.20 192.168.1.30; do
   scp -i phase1-kvm-infrastructure/.ssh/id_rsa /tmp/*.tar.gz ubuntu@${NODE}:/tmp/
   ssh -i phase1-kvm-infrastructure/.ssh/id_rsa ubuntu@${NODE} "
     for f in /tmp/*.tar.gz; do
-      gunzip -c \"\$f\" | sudo ctr -n k8s.io images import --label io.cri-containerd.image=managed -
+      gunzip -c \"\$f\" | sudo ctr -n k8s.io images import -
     done
     rm /tmp/*.tar.gz
   "

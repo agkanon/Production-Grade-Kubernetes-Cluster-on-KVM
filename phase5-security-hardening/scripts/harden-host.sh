@@ -49,6 +49,29 @@ echo "[2/4] Applying UFW firewall rules..."
 
 # WARNING: The networks below match the deployment in NETWORK_TOPOLOGY.md.
 # If your KVM bridge IP ranges differ, update these values before running.
+#
+# This script runs on every node (control plane, workers, nfs-01, lb-01,
+# db-01) with one shared rule set — a rule for a port nothing on that node
+# listens on is a harmless no-op, so it's simpler to allow broadly here than
+# to fork the rule set per role. But every rule below IS required on at
+# least one node, confirmed against a live cluster (`ss -tlnp` / `ss -ulnp`)
+# rather than assumed from Kubernetes docs alone:
+#   - 10250/tcp, 4240/tcp, 8472/udp were all observed LISTENing on cp-01 and
+#     the workers. Without them, kubectl exec/logs/metrics-server (10250),
+#     Cilium's cross-node health checks (4240), and the VXLAN pod-network
+#     overlay itself (8472/udp) all break — the last one takes down
+#     cross-node pod networking entirely.
+#   - 2379-2380/tcp (etcd) is observed listening on cp-01's management IP,
+#     not just loopback; kept open for correctness / future multi-CP.
+#   - 30000-32767/tcp (NodePort range) is how lb-01's HAProxy reaches Kong
+#     on w-01/w-02:30080 (and Grafana/Prometheus in Phase 4). Without it,
+#     the app becomes unreachable through the load balancer.
+#   - 5432/tcp is required on db-01 for Runbook 6.5 (emergency failover) —
+#     the backend Deployment connects to postgresql://...@192.168.1.60:5432
+#     directly, and that traffic is masqueraded to the pod's node IP
+#     (192.168.1.0/24) by Cilium before it reaches db-01.
+# (10259/10257 — scheduler/controller-manager — are NOT listed: they were
+# observed bound to 127.0.0.1 only, so no cross-node rule is needed.)
 
 ufw --force reset
 ufw default deny incoming
@@ -59,6 +82,25 @@ ufw allow from 192.168.1.0/24 to any port 22
 
 # kube-management network (192.168.1.0/24) — allow Kubernetes API from management network
 ufw allow from 192.168.1.0/24 to any port 6443
+
+# kubelet API — control plane -> node (exec/logs/metrics-server) on every node
+ufw allow from 192.168.1.0/24 to any port 10250
+
+# etcd client + peer (cp-01; kept open cluster-wide for simplicity/future multi-CP)
+ufw allow from 192.168.1.0/24 to any port 2379:2380 proto tcp
+
+# Cilium cross-node health checks
+ufw allow from 192.168.1.0/24 to any port 4240
+
+# Cilium VXLAN pod-network overlay — required for cross-node pod-to-pod traffic
+ufw allow from 192.168.1.0/24 to any port 8472 proto udp
+
+# NodePort range — lb-01 (HAProxy) -> Kong on w-01/w-02:30080/30443,
+# and Grafana/Prometheus NodePorts (Phase 4)
+ufw allow from 192.168.1.0/24 to any port 30000:32767 proto tcp
+
+# db-01 PostgreSQL — required for Runbook 6.5 emergency failover
+ufw allow from 192.168.1.0/24 to any port 5432
 
 # kube-storage network (192.168.2.0/24) — allow NFS from storage network
 ufw allow from 192.168.2.0/24 to any port 2049

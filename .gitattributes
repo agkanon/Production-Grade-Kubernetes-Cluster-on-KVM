@@ -1,0 +1,23 @@
+# Force LF line endings regardless of platform checkout settings.
+# Root cause: core.autocrlf=true on Windows checkouts silently rewrote these
+# files with CRLF, which breaks `bash` on every Linux target this repo is
+# deployed to (e.g. "set -euo pipefail\r" -> "invalid option name").
+* text=auto eol=lf
+
+*.sh    text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.tf    text eol=lf
+*.tfvars text eol=lf
+*.conf  text eol=lf
+*.cfg   text eol=lf
+*.md    text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.json  text eol=lf
+*.sql   text eol=lf
+
+# Never text-normalize binaries
+*.png binary
+*.jpg binary
+*.gz  binary

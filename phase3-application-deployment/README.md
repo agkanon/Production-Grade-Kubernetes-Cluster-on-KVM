@@ -36,11 +36,15 @@ for NODE in 192.168.1.10 192.168.1.20 192.168.1.30; do
   scp -i phase1-kvm-infrastructure/.ssh/id_rsa /tmp/bmi-*.tar.gz ubuntu@${NODE}:/tmp/
   ssh -i phase1-kvm-infrastructure/.ssh/id_rsa ubuntu@${NODE} "
     for f in /tmp/bmi-*.tar.gz; do
-      gunzip -c \"\$f\" | sudo ctr -n k8s.io images import --label io.cri-containerd.image=managed -
+      gunzip -c \"\$f\" | sudo ctr -n k8s.io images import -
     done
     rm /tmp/bmi-*.tar.gz
   "
 done
+# NOTE: --label io.cri-containerd.image=managed is NOT a valid flag on the
+# ctr build shipped with containerd.io 1.7.x ("flag provided but not
+# defined: -label") — omit it, as above. It is unnecessary; ctr images
+# import already registers the image correctly for containerd's CRI plugin.
 
 for NODE in 192.168.1.10 192.168.1.20 192.168.1.30; do
   echo "=== $NODE ==="
@@ -113,10 +117,33 @@ kubectl rollout status deployment/kong-gateway -n kong --timeout=300s
 kubectl get pods -n kong
 ```
 
+> **Known chart issue**: `gateway.proxy.nodePorts.http/https` is accepted by
+> `helm upgrade --install` without error but does **not** get applied to the
+> resulting `kong-gateway-proxy` Service on chart version installed from the
+> `kong/ingress` repo as of this writing — `kubectl get svc -n kong` will show
+> a randomly-assigned NodePort instead of 30080/30443. Patch it explicitly
+> after install:
+> ```bash
+> kubectl patch svc kong-gateway-proxy -n kong --type=json -p '[
+>   {"op":"replace","path":"/spec/ports/0/nodePort","value":30080},
+>   {"op":"replace","path":"/spec/ports/1/nodePort","value":30443}
+> ]'
+> kubectl get svc kong-gateway-proxy -n kong
+> # Expected: 80:30080/TCP,443:30443/TCP
+> ```
+> This is required — lb-01's HAProxy config (Phase 1 cloud-init) forwards to
+> `w-01/w-02:30080` unconditionally.
+
 ### Apply Kong routing rules
 
 ```bash
-kubectl apply -f manifests/06-kong.yaml
+# NOTE: manifests/06-kong.yaml documents the alternative *manual* (no-Helm)
+# Kong install (kubectl apply of the all-in-one-dbless.yaml, selector
+# app=ingress-kong). Do NOT apply it after the Helm install above — its
+# `kong-proxy` Service selector does not match the Helm-installed gateway
+# pods and creates a second, non-functional Service. Skip straight to the
+# routes file, which is install-method-agnostic (it only depends on an
+# IngressClass named "kong", which the Helm chart's controller registers).
 kubectl apply -f manifests/07-kong-routes.yaml
 
 kubectl get ingressclass
@@ -127,6 +154,12 @@ kubectl label namespace kong kubernetes.io/metadata.name=kong --overwrite
 ```
 
 ## Step 6 — Configure HAProxy on lb-01
+
+> Phase 1 cloud-init (`phase1-kvm-infrastructure/cloud-init/load-balancer.yaml`)
+> now installs and starts HAProxy with this exact config automatically —
+> verify with `ssh ubuntu@192.168.1.50 "systemctl is-active haproxy"` first.
+> This step is an idempotent fallback if that failed or you need to change
+> the backend list; re-running it is safe.
 
 SSH into lb-01 (192.168.1.50) and run:
 

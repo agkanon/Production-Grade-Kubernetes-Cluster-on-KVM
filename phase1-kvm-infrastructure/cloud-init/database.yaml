@@ -2,22 +2,14 @@
 hostname: ${hostname}
 fqdn: ${hostname}.kubernetes.local
 
-package_update: true
-package_upgrade: true
-packages:
-  - curl
-  - wget
-  - vim
-  - net-tools
-  - htop
-  - sysstat
-  - jq
-  - openssl
-  - openssh-server
-  - chrony
-  - gnupg
-  - lsb-release
-  - nfs-common
+# All package installation happens in runcmd, not here — see the note in
+# runcmd below. package_update/package_upgrade/packages run before netplan
+# apply brings up static IP+DNS and were observed (on the other node types in
+# this project) to fail outright on a cold boot ("Temporary failure resolving
+# 'archive.ubuntu.com'"), which would silently drop gnupg/lsb-release here —
+# both required by the PGDG repo setup below (gpg --dearmor, lsb_release -cs).
+package_update: false
+package_upgrade: false
 
 ssh_pwauth: false
 disable_root: true
@@ -179,6 +171,20 @@ write_files:
 runcmd:
   - sysctl -p /etc/sysctl.d/99-k8s.conf
   - netplan apply
+
+  # netplan apply above switches ens3 from the image's default DHCP config to
+  # our static IP; DNS only becomes reachable once that lands. Block here
+  # until resolution actually works — see the same pattern (and its
+  # justification) in control-plane.yaml/worker.yaml/storage.yaml/
+  # load-balancer.yaml.
+  - |
+    for i in $(seq 1 30); do
+      getent hosts archive.ubuntu.com > /dev/null 2>&1 && break
+      sleep 2
+    done
+  - apt-get update -qq
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget vim net-tools htop sysstat jq openssl openssh-server chrony gnupg lsb-release nfs-common
+
   - systemctl daemon-reload
   - systemctl enable chrony
   - systemctl start chrony

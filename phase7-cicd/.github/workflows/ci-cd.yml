@@ -67,9 +67,16 @@ jobs:
           SCP="scp -i ~/.ssh/ci_id_rsa"
           for NODE in ${{ env.CP01_IP }} ${{ env.W01_IP }} ${{ env.W02_IP }}; do
             ${SCP} /tmp/images/bmi-*.tar.gz ubuntu@${NODE}:/tmp/
+            # --label is NOT a valid flag on the ctr shipped with
+            # containerd.io 1.7.x ("flag provided but not defined: -label").
+            # Without set -e in this remote block, that failure was silent —
+            # the job reported success while no image was actually imported,
+            # and the real failure only surfaced later as a rollout timeout
+            # in the deploy job.
             ${SSH} ubuntu@${NODE} "
+              set -e
               for f in /tmp/bmi-*.tar.gz; do
-                gunzip -c \"\$f\" | sudo ctr -n k8s.io images import --label io.cri-containerd.image=managed -
+                gunzip -c \"\$f\" | sudo ctr -n k8s.io images import -
               done
               rm /tmp/bmi-*.tar.gz
             "

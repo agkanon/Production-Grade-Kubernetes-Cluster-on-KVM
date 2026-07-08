@@ -208,8 +208,10 @@ docker save bmi-health/backend:1.1.0 | gzip > bmi-backend-1.1.0.tar.gz
 for NODE in 192.168.1.10 192.168.1.20 192.168.1.30; do
   scp -i phase1-kvm-infrastructure/.ssh/id_rsa \
     bmi-backend-1.1.0.tar.gz ubuntu@${NODE}:/tmp/
+  # No --label flag — it is not valid on the ctr shipped with containerd.io
+  # 1.7.x ("flag provided but not defined: -label") and fails the import.
   ssh -i phase1-kvm-infrastructure/.ssh/id_rsa ubuntu@${NODE} \
-    "gunzip -c /tmp/bmi-backend-1.1.0.tar.gz | sudo ctr -n k8s.io images import --label io.cri-containerd.image=managed - && rm /tmp/bmi-backend-1.1.0.tar.gz"
+    "gunzip -c /tmp/bmi-backend-1.1.0.tar.gz | sudo ctr -n k8s.io images import - && rm /tmp/bmi-backend-1.1.0.tar.gz"
 done
 ```
 

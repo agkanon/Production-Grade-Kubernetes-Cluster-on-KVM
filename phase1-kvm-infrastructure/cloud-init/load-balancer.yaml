@@ -2,22 +2,13 @@
 hostname: ${hostname}
 fqdn: ${hostname}.kubernetes.local
 
-package_update: true
-package_upgrade: true
-packages:
-  - curl
-  - wget
-  - git
-  - vim
-  - net-tools
-  - htop
-  - sysstat
-  - jq
-  - openssl
-  - openssh-server
-  - chrony
-  - haproxy
-  - keepalived
+# All package installation happens in runcmd, not here — see the note in
+# runcmd below. package_update/package_upgrade/packages run before netplan
+# apply brings up static IP+DNS and were observed to fail outright on a cold
+# boot ("Temporary failure resolving 'archive.ubuntu.com'"), which is how
+# haproxy ended up silently missing despite write_files placing its config.
+package_update: false
+package_upgrade: false
 
 ssh_pwauth: false
 disable_root: true
@@ -90,7 +81,29 @@ write_files:
 runcmd:
   - sysctl -p /etc/sysctl.d/99-lb.conf
   - netplan apply
+
+  # netplan apply above switches ens3 from the image's default DHCP config to
+  # our static IP; DNS only becomes reachable once that lands. All packages
+  # (not just haproxy) are installed here, not in packages:, since that list
+  # runs before networking is reconfigured and was observed to fail outright
+  # with "Temporary failure resolving 'archive.ubuntu.com'" on a cold boot,
+  # which silently left haproxy uninstalled while write_files still dropped
+  # the custom haproxy.cfg on disk.
+  - |
+    for i in $(seq 1 30); do
+      getent hosts archive.ubuntu.com > /dev/null 2>&1 && break
+      sleep 2
+    done
+  - apt-get update -qq
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget git vim net-tools htop sysstat jq openssl openssh-server chrony keepalived
+  # --force-confold keeps the haproxy.cfg already placed by write_files
+  # instead of prompting (and hanging, since this runs unattended) over the
+  # package's own default config file at the same path.
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::="--force-confold" haproxy
+
+  - haproxy -c -f /etc/haproxy/haproxy.cfg -V
   - systemctl enable haproxy
+  - systemctl restart haproxy
   - systemctl restart ssh
 
 final_message: "Load balancer ${hostname} is ready"
