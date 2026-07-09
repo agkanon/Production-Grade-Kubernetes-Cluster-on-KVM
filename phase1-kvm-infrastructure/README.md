@@ -215,6 +215,8 @@ bash scripts/test-ssh.sh
 
 ### 4. Access VMs
 ```bash
+# Permission given in .ssh folder
+sudo chown -R ubuntu:ubuntu .ssh/
 # SSH to control plane
 ssh -i .ssh/id_rsa ubuntu@192.168.1.10
 
