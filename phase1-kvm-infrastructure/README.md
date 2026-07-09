@@ -93,8 +93,6 @@ sudo systemctl start libvirtd
 
 # Add current user to libvirt group
 sudo usermod -aG libvirt $USER
-newgrp libvirt
-
 sudo apt update && sudo apt install -y gnupg software-properties-common curl
 
 #  Add HashiCorp's GPG key
@@ -120,6 +118,7 @@ sudo usermod -aG docker $USER
 
 # Re-login for both group memberships to take effect
 newgrp docker
+newgrp libvirt
 ```
 
 ### GitHub Actions Self-Hosted Runner
