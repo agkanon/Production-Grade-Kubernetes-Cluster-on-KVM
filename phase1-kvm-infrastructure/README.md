@@ -185,7 +185,23 @@ This script will:
 
 ### 3. Verify Deployment
 ```bash
+# virsh defaults to qemu:///session unless told otherwise — point it at the
+# system-wide libvirtd that Terraform provisioned into (qemu:///system).
+# Persist it so every future shell picks it up automatically.
+echo 'export LIBVIRT_DEFAULT_URI=qemu:///system' >> ~/.bashrc
+export LIBVIRT_DEFAULT_URI=qemu:///system
+
+# If `virsh list --all` errors with "Permission denied" on
+# /var/run/libvirt/libvirt-sock, your user isn't in the libvirt group yet:
+#   sudo usermod -aG libvirt,kvm $USER && newgrp libvirt
+
 # List running VMs
+# Note: virsh-list resolves IPs from the ARP neighbor cache, which is only
+# populated once the host has exchanged traffic with a VM — a freshly booted
+# VM may show N/A here until pinged. It also needs an interactive shell (the
+# `source ~/.bashrc` below is a no-op in non-interactive contexts, since
+# Ubuntu's default .bashrc returns early for those). If a VM shows N/A, fall
+# back to `virsh domifaddr <vm> --source agent` further down.
 cat >> ~/.bashrc << 'EOF'
 
 virsh-list() {
@@ -203,12 +219,15 @@ source ~/.bashrc
 virsh-list
 
 
-# Check VM IPs
-virsh domifaddr cp-01
-virsh domifaddr w-01
-virsh domifaddr w-02
-virsh domifaddr nfs-01
-virsh domifaddr lb-01
+# Check VM IPs via the QEMU guest agent — these VMs use static IPs (not
+# DHCP), so the default lease-based `virsh domifaddr` lookup always returns
+# empty. --source agent queries the in-guest agent instead.
+virsh domifaddr cp-01 --source agent
+virsh domifaddr w-01 --source agent
+virsh domifaddr w-02 --source agent
+virsh domifaddr nfs-01 --source agent
+virsh domifaddr lb-01 --source agent
+virsh domifaddr db-01 --source agent
 
 # Test SSH connectivity
 bash scripts/test-ssh.sh
