@@ -516,7 +516,7 @@ specific host type. It's applied manually, once, after Phase 3.
 
 ```bash
 # Find the hypervisor's public-facing NIC (not a virbr* bridge)
-PUB_IF=$(ip -o -4 addr show | awk '!/virbr|docker0|lo/{print $2; exit}')
+PUB_IF=$(ip -o -4 route show to default | awk '{print $5; exit}')
 
 # DNAT: hypervisor public IP:80/443 → lb-01:80/443
 sudo iptables -t nat -A PREROUTING -i "$PUB_IF" -p tcp --dport 80  -j DNAT --to-destination 192.168.100.10:80
