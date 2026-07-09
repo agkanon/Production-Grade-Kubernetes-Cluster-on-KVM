@@ -218,8 +218,8 @@ source ~/.bashrc
 virsh-list
 
 
-# Check VM IPs via the QEMU guest agent — these VMs use static IPs (not
-# DHCP), so the default lease-based `virsh domifaddr` lookup always returns
+# Check VM IPs via the QEMU guest agent — these VMs use static IPs (not DHCP),
+# so the default lease-based `virsh domifaddr` lookup always returns
 # empty. --source agent queries the in-guest agent instead.
 virsh domifaddr cp-01 --source agent
 virsh domifaddr w-01 --source agent
