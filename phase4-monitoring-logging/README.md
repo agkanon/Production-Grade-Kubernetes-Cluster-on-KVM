@@ -87,6 +87,12 @@ kubectl get pvc -n production | grep pg-backup
 kubectl create job --from=cronjob/pg-daily-backup manual-test -n production
 kubectl wait --for=condition=complete job/manual-test -n production --timeout=60s
 kubectl logs job/manual-test -n production
+
+# to show db backup via temporary pod
+kubectl run pvc-check --rm -it --image=busybox -n production \
+  --overrides='{"spec":{"containers":[{"name":"pvc-check","image":"busybox","command":["sh"],"stdin":true,"tty":true,"volumeMounts":[{"name":"backup","mountPath":"/backups"}]}],"volumes":[{"name":"backup","persistentVolumeClaim":{"claimName":"pg-backup-storage"}}]}}' \
+  -- sh
+
 ```
 
 ## Step 4 — Verify
