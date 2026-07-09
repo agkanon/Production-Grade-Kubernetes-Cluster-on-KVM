@@ -15,6 +15,16 @@ spec:
       storage: 20Gi
 
 ---
+# ── PostgreSQL Backup — ServiceAccount ─────────────────────────────────────────
+# Identity-only — the pg-dump container never calls the Kubernetes API, so no
+# Role/RoleBinding is attached.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pg-backup-sa
+  namespace: production
+
+---
 # ── PostgreSQL Backup — CronJob ────────────────────────────────────────────────
 # Runs daily at 02:00 UTC. Uses pg_dump in custom format (-Fc) which is
 # smaller than plain SQL and supports parallel restore with pg_restore -j.
