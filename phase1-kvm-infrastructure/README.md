@@ -93,7 +93,6 @@ sudo systemctl start libvirtd
 
 # Add current user to libvirt group
 sudo usermod -aG libvirt $USER
-newgrp libvirt
 sudo apt update && sudo apt install -y gnupg software-properties-common curl
 
 #  Add HashiCorp's GPG key
