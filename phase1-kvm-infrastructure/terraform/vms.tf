@@ -58,11 +58,12 @@ resource "libvirt_cloudinit_disk" "cloudinit" {
 
 # Virtual machines
 resource "libvirt_domain" "vms" {
-  for_each  = local.vm_configs
-  name      = each.key
-  memory    = each.value.memory
-  vcpu      = each.value.cpus
-  autostart = true
+  for_each   = local.vm_configs
+  name       = each.key
+  memory     = each.value.memory
+  vcpu       = each.value.cpus
+  autostart  = true
+  qemu_agent = true
 
   depends_on = [
     libvirt_network.management,

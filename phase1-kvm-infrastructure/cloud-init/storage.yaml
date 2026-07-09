@@ -95,7 +95,8 @@ runcmd:
       sleep 2
     done
   - apt-get update -qq
-  - DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget git vim net-tools htop sysstat jq openssl openssh-server chrony nfs-common lvm2 xfsprogs
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget git vim net-tools htop sysstat jq openssl openssh-server chrony nfs-common lvm2 xfsprogs qemu-guest-agent
+  - systemctl enable --now qemu-guest-agent
   # --force-confold keeps /etc/exports already placed by write_files instead
   # of prompting (and hanging, since this runs unattended) over the
   # package's own default (commented-out example) conffile at the same path.

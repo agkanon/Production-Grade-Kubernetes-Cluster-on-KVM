@@ -183,11 +183,12 @@ runcmd:
       sleep 2
     done
   - apt-get update -qq
-  - DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget vim net-tools htop sysstat jq openssl openssh-server chrony gnupg lsb-release nfs-common
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget vim net-tools htop sysstat jq openssl openssh-server chrony gnupg lsb-release nfs-common qemu-guest-agent
 
   - systemctl daemon-reload
   - systemctl enable chrony
   - systemctl start chrony
+  - systemctl enable --now qemu-guest-agent
   - systemctl restart ssh
   # Install PostgreSQL 17 from PGDG (Ubuntu 24.04 default repo only ships PG 16)
   - 'curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg'

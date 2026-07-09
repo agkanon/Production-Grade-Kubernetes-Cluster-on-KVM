@@ -91,7 +91,8 @@ runcmd:
 
   # ── Base packages (moved here from packages: — see note above) ──────────────
   - apt-get update -qq
-  - DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget git vim net-tools htop sysstat jq openssl openssh-server chrony bridge-utils ebtables ethtool apt-transport-https ca-certificates gnupg nfs-common
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y curl wget git vim net-tools htop sysstat jq openssl openssh-server chrony bridge-utils ebtables ethtool apt-transport-https ca-certificates gnupg nfs-common qemu-guest-agent
+  - systemctl enable --now qemu-guest-agent
 
   # ── Install containerd.io from Docker's official apt repo ───────────────────
   # Ubuntu 24.04 ships containerd (not containerd.io) which lacks full CRI support.
