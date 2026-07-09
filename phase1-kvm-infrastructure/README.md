@@ -118,6 +118,7 @@ sudo usermod -aG docker $USER
 
 # Re-login for both group memberships to take effect
 newgrp docker
+newgrp libvirt
 ```
 
 ### GitHub Actions Self-Hosted Runner
